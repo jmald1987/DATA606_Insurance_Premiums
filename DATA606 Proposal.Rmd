@@ -1,0 +1,400 @@
+---
+title: "DATA 606 Data Project Proposal"
+author: "Johnny Maldonado"
+date: "11/8/2026"
+output: pdf_document
+---
+
+### Data Preparation
+
+```{r setup, echo=TRUE, results='hide', warning=FALSE, message=FALSE}
+library(tidyverse)
+
+# Load both Insurify datasets from GitHub.
+
+state_rates <- read_csv(
+  "https://raw.githubusercontent.com/jmald1987/DATA606_Insurance_Premiums/refs/heads/main/auto_insurance_rates_by_state_000.csv",
+  show_col_types = FALSE
+)
+
+vehicle_rates <- read_csv(
+  "https://raw.githubusercontent.com/jmald1987/DATA606_Insurance_Premiums/refs/heads/main/auto_insurance_rates_by_vehicle_000.csv",
+  show_col_types = FALSE
+)
+
+# Convert monthly columns from wide to long format.
+
+state_long <- state_rates %>%
+  pivot_longer(
+    cols = matches("^20[0-9]{2}[-_][0-9]{2}$"),
+    names_to = "month",
+    values_to = "premium"
+  ) %>%
+  transmute(
+    state = state_id,
+    month = as.Date(
+      paste0(gsub("_", "-", month), "-01")
+    ),
+    state_premium = as.numeric(premium)
+  )
+
+vehicle_long <- vehicle_rates %>%
+  pivot_longer(
+    cols = matches("^20[0-9]{2}[-_][0-9]{2}$"),
+    names_to = "month",
+    values_to = "premium"
+  ) %>%
+  transmute(
+    vehicle = vehicle_name,
+    month = as.Date(
+      paste0(gsub("_", "-", month), "-01")
+    ),
+    vehicle_premium = as.numeric(premium)
+  )
+
+# National insurance premium benchmark.
+
+national_rates <- state_long %>%
+  filter(
+    state == "US",
+    state_premium > 0
+  ) %>%
+  select(
+    month,
+    national_premium = state_premium
+  )
+
+# New York and Wyoming state premiums.
+
+selected_states <- state_long %>%
+  filter(
+    state %in% c("NY", "WY"),
+    state_premium > 0
+  ) %>%
+  mutate(
+    state = recode(
+      state,
+      NY = "New York",
+      WY = "Wyoming"
+    )
+  )
+
+# Honda Civic and Honda CR-V premiums.
+
+selected_vehicles <- vehicle_long %>%
+  filter(
+    vehicle %in% c(
+      "Honda Civic",
+      "Honda CR-V"
+    ),
+    vehicle_premium > 0
+  )
+
+# Combine datasets using reporting month.
+
+analysis_data <- selected_states %>%
+  inner_join(
+    national_rates,
+    by = "month"
+  ) %>%
+  inner_join(
+    selected_vehicles,
+    by = "month"
+  ) %>%
+  mutate(
+    state_adjustment =
+      state_premium / national_premium,
+
+    estimated_premium =
+      vehicle_premium * state_adjustment
+  ) %>%
+  filter(
+    is.finite(estimated_premium),
+    estimated_premium > 0
+  )
+
+# Confirm that all four combinations are present.
+
+stopifnot(
+  n_distinct(analysis_data$state) == 2,
+  n_distinct(analysis_data$vehicle) == 2,
+  nrow(analysis_data) > 0
+)
+```
+
+### Research question
+
+**How do estimated full-coverage automobile insurance premiums for the Honda Civic and Honda CR-V compare between New York and Wyoming, and what do these differences suggest about automobile insurance affordability?**
+
+This project investigates the relationship between geographic location, vehicle model, and estimated automobile insurance costs.
+
+New York is the primary location of interest, while Wyoming provides a comparison state represented in the available insurance dataset.
+
+The study will compare estimated insurance premiums across the two states and two Honda models using monthly premium observations.
+
+The objective is to identify differences in estimated insurance costs that may help prospective car buyers evaluate the financial implications of vehicle selection and geographic location.
+
+### Cases
+
+Each case represents a unique combination of state, vehicle model, and reporting month.
+
+The four state-vehicle combinations are:
+
+- New York — Honda Civic
+- New York — Honda CR-V
+- Wyoming — Honda Civic
+- Wyoming — Honda CR-V
+
+The source datasets contain monthly observations from January 2021 through October 2026.
+
+The final number of cases depends on the number of months shared by the datasets after excluding missing or zero-valued premiums.
+
+```{r cases, echo=TRUE}
+analysis_data %>%
+  summarise(
+    total_cases = n(),
+    reporting_months = n_distinct(month),
+    states = n_distinct(state),
+    vehicle_models = n_distinct(vehicle)
+  )
+
+analysis_data %>%
+  count(state, vehicle, name = "observations")
+```
+
+### Data collection
+
+The project uses secondary data published by Insurify, an automobile insurance comparison platform.
+
+Two publicly available datasets were downloaded and stored in the project's GitHub repository:
+
+1. Automobile insurance premiums by state.
+2. Automobile insurance premiums by vehicle model.
+
+Both datasets contain monthly premium information. The original datasets are organized in wide format, with reporting months represented as separate columns.
+
+The data will be imported into R, converted to long format, and matched by reporting month.
+
+The state dataset provides insurance premium information for New York, Wyoming, and the United States national benchmark.
+
+The vehicle dataset provides premium information for the Honda Civic and Honda CR-V.
+
+The national benchmark will be used to calculate a state adjustment factor.
+
+The estimated state-adjusted vehicle premium is calculated as:
+
+\[
+\text{Estimated Premium}
+=
+\text{Vehicle Premium}
+\times
+\frac{\text{State Premium}}{\text{National Premium}}
+\]
+
+The calculation produces an estimated premium for each state-vehicle combination based on published aggregate insurance data.
+
+### Type of study
+
+**Observational study.**
+
+The study uses previously collected insurance premium data. No variables are manipulated, and no drivers are assigned to vehicles or geographic locations.
+
+The research compares estimated insurance premiums across states and vehicle models.
+
+The analysis is intended to identify patterns and differences rather than establish a causal relationship between geographic location, vehicle choice, and insurance pricing.
+
+### Data Source
+
+**Insurify — Car Insurance Data Center**
+
+https://insurify.com/car-insurance/report/data/
+
+**Automobile insurance rates by state**
+
+https://github.com/jmald1987/DATA606_Insurance_Premiums/blob/main/auto_insurance_rates_by_state_000.csv
+
+**Automobile insurance rates by vehicle**
+
+https://github.com/jmald1987/DATA606_Insurance_Premiums/blob/main/auto_insurance_rates_by_vehicle_000.csv
+
+The datasets are publicly available and were not collected directly by the researcher.
+
+### Describe your variables?
+
+**Response variable**
+
+Estimated automobile insurance premium, measured in U.S. dollars.
+
+- Type: Quantitative (numerical).
+- Role: Response variable.
+
+**Explanatory variables**
+
+**State**
+
+- Values: New York and Wyoming.
+- Type: Qualitative (categorical).
+- Role: Explanatory variable.
+
+**Vehicle model**
+
+- Values: Honda Civic and Honda CR-V.
+- Type: Qualitative (categorical).
+- Role: Explanatory variable.
+
+**Reporting month**
+
+- Type: Temporal.
+- Role: Used to match datasets and examine premium trends over time.
+
+**Additional quantitative variables**
+
+- State insurance premium.
+- National insurance premium.
+- Vehicle-model insurance premium.
+- State adjustment factor.
+
+The main analysis will examine how the estimated response variable differs across the two categorical explanatory variables.
+
+### Relevant summary statistics
+
+The following statistics will be calculated for each state and vehicle combination:
+
+- Number of observations.
+- Mean estimated premium.
+- Median estimated premium.
+- Standard deviation.
+- Minimum estimated premium.
+- Maximum estimated premium.
+
+Visualizations will compare the distribution, average cost, and monthly trends of estimated premiums.
+
+```{r summaries, echo=TRUE, warning=FALSE, message=FALSE}
+
+# Overall case count and reporting periods.
+
+analysis_data %>%
+  summarise(
+    total_cases = n(),
+    reporting_months = n_distinct(month)
+  )
+
+# Summary statistics by state and vehicle model.
+
+summary_table <- analysis_data %>%
+  group_by(state, vehicle) %>%
+  summarise(
+    observations = n(),
+    mean_premium = mean(estimated_premium),
+    median_premium = median(estimated_premium),
+    sd_premium = sd(estimated_premium),
+    min_premium = min(estimated_premium),
+    max_premium = max(estimated_premium),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    across(
+      c(
+        mean_premium,
+        median_premium,
+        sd_premium,
+        min_premium,
+        max_premium
+      ),
+      ~ round(.x, 2)
+    )
+  )
+
+print(summary_table)
+
+# Visualization 1:
+# Distribution of estimated premiums by state.
+
+ggplot(
+  analysis_data,
+  aes(
+    x = state,
+    y = estimated_premium,
+    fill = vehicle
+  )
+) +
+  geom_boxplot() +
+  labs(
+    title = "Estimated Automobile Insurance Premiums",
+    subtitle = "Honda Civic and Honda CR-V: New York vs. Wyoming",
+    x = "State",
+    y = "Estimated Premium (USD)",
+    fill = "Vehicle Model"
+  ) +
+  theme_minimal()
+
+# Visualization 2:
+# Average estimated premium by state and vehicle.
+
+average_premiums <- analysis_data %>%
+  group_by(state, vehicle) %>%
+  summarise(
+    mean_premium = mean(estimated_premium),
+    .groups = "drop"
+  )
+
+ggplot(
+  average_premiums,
+  aes(
+    x = vehicle,
+    y = mean_premium,
+    fill = state
+  )
+) +
+  geom_col(
+    position = "dodge"
+  ) +
+  labs(
+    title = "Average Estimated Insurance Premium",
+    subtitle = "New York and Wyoming",
+    x = "Vehicle Model",
+    y = "Average Estimated Premium (USD)",
+    fill = "State"
+  ) +
+  theme_minimal()
+
+# Visualization 3:
+# Estimated insurance premium trends over time.
+
+ggplot(
+  analysis_data,
+  aes(
+    x = month,
+    y = estimated_premium,
+    color = state
+  )
+) +
+  geom_line() +
+  facet_wrap(~ vehicle) +
+  labs(
+    title = "Estimated Insurance Premium Trends",
+    subtitle = "Honda Civic and Honda CR-V",
+    x = "Reporting Month",
+    y = "Estimated Premium (USD)",
+    color = "State"
+  ) +
+  theme_minimal()
+
+# Compare average premiums between the two states.
+
+state_comparison <- analysis_data %>%
+  group_by(vehicle, state) %>%
+  summarise(
+    average_premium = mean(estimated_premium),
+    .groups = "drop"
+  ) %>%
+  pivot_wider(
+    names_from = state,
+    values_from = average_premium
+  ) %>%
+  mutate(
+    difference = `New York` - Wyoming
+  )
+
+print(state_comparison)
+```
